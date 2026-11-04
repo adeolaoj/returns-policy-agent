@@ -1,0 +1,15 @@
+[project]
+name = "returns-policy-agent"
+version = "0.1.0"
+description = "A customer-service agent for a fictional retailer that handles return, exchange, and refund requests in natural language"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "pydantic>=2.14.2",
+    "pyyaml>=6.0.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
