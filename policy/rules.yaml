@@ -1,0 +1,54 @@
+# Fernhill Goods return policy as structured rules.
+#
+# This file holds the values the business is likely to change: windows, dates, thresholds.
+# How the rules interact (precedence) will be implemented in the policy engine and is
+# documented in policy/contradictions.md.
+#
+# Bump policy_version on any change. Every decision records the version that produced it.
+
+policy_version: "1.0.0"
+effective_date: 2026-01-01
+
+rules:
+  standard_window:
+    section: "§1"
+    description: Returns accepted within N days of delivery.
+    days: 30
+
+  loyalty_window:
+    section: "§2"
+    description: Rewards members (as of the order date, C4) get N days from delivery.
+    days: 60
+
+  holiday_extension:
+    section: "§3"
+    description: Items ordered between start and end (inclusive) can be returned until the deadline in the following year.
+    order_start: { month: 11, day: 15 }
+    order_end: { month: 12, day: 31 }
+    deadline: { month: 1, day: 31 }
+
+  final_sale:
+    section: "§4"
+    description: Clearance items are final sale and cannot be returned or exchanged.
+
+  defective_window:
+    section: "§5"
+    description: Defective items can be returned within N days of delivery, even if final sale (C1).
+    days: 90
+
+  refund_method:
+    section: "§6"
+    description: Refund to the original payment method; gift purchases get store credit (C6).
+
+  condition:
+    section: "§7"
+    description: Items must be unused with tags or original packaging (C5), unless defective.
+
+  human_approval:
+    section: "§8"
+    description: Refunds strictly over the threshold need human approval, including store credit (C7).
+    threshold: 500.00
+
+  exchange:
+    section: "§9"
+    description: Same product, at least one of size or color different, in stock (C9).
