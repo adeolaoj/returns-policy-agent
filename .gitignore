@@ -27,3 +27,7 @@ MANIFEST
 
 # Environments
 .venv/
+
+# API Keys and Secrets
+env
+project-spec.md
