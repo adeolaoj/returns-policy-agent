@@ -1,33 +1,31 @@
 from datetime import date
 from typing import Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from decimal import Decimal
-
-
-""" # LLM output model. Uses pydantic for validation and parsing of LLM output.
-class ExtractedInfo(BaseModel):
-    order_id: str
-    intent: Literal["return", "exchange", "refund status", "out of scope"]
-    details: str """
 
 
 # Order facts: defines information about the order that is known.
 class OrderFact(BaseModel):
     order_id: str
     order_date: date
+    delivery_date: date
+    customer_membership_status: Literal["member", "non-member"]
     item: str
-    product_price: float
-    return_window_days: int
+    price_paid: Decimal
     is_final_sale: bool
-    requested_in_stock: bool | None
+    is_gift: bool
+    customer_variant: str
 
+# Exchange request: defines information about the exchange request that is known.
+class ExchangeRequest(BaseModel):
+    requested_variant: str
+    requested_in_stock: bool
 
 # Customer claims: information about the order claimed by the customer.
 # This is the information that the customer provides to the agent.
 class CustomerClaim(BaseModel):
-    claim_date: date
-    return_reason: str
-    item_condition: str
+    defective: bool
+    exchange_request: ExchangeRequest | None
 
 
 # Engine request: defines the input to the engine model, which includes order facts and customer claims.
@@ -41,8 +39,8 @@ class EngineRequest(BaseModel):
 class RuleHit(BaseModel):
     rule_section: str
     rule_description: str
-    rule_version: str
     valid_window: int | None
+    result: Literal["pass", "fail", "info"]
 
 # Deterministic engine model
 # This model is used to represent decisions made according to company policies and rules.
@@ -51,9 +49,10 @@ class RuleHit(BaseModel):
 AllowedActions = Literal["refund", "store_credit", "exchange", "deny"]
 
 class PolicyDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)  # Forbid extra fields in the model
     policy_rules: list[RuleHit] # List of policy rules that were evaluated to make the decision
-    decision_date: date
+    deadline: date
     requires_human_review: bool
-    action_to_take: AllowedActions  # Default action is to deny if no rules are met
+    action_to_take: AllowedActions
     rules_version: str # Version of the policy rules applied
-    refund_amount: Decimal
+    refund_amount: Decimal | None
