@@ -64,7 +64,7 @@ class EngineRequest(StrictInput):
 
     # A request made before delivery is invalid input, not a policy decision:
     # it means something upstream called the engine when it shouldn't have.
-    # So, it gets rejected here so the engine
+    # So, it gets rejected here
     @model_validator(mode="after")
     def validate_request_date(self):
         if self.request_date < self.order_fact.delivery_date:
