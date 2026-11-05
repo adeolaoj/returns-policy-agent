@@ -29,5 +29,5 @@ MANIFEST
 .venv/
 
 # API Keys and Secrets
-env
+.env
 project-spec.md
