@@ -19,6 +19,7 @@ class OrderFact(BaseModel):
     product_price: float
     return_window_days: int
     is_final_sale: bool
+    requested_in_stock: bool | None
 
 
 # Customer claims: information about the order claimed by the customer.
