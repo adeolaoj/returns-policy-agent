@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # Base for every input model. Inputs carry untrusted data (customer claims, LLM output,
@@ -29,10 +29,16 @@ class OrderFact(StrictInput):
     # The engine applies C4 itself (member as of order_date)
     loyalty_since: date | None
     item: str
-    price_paid: Decimal
+    price_paid: Decimal = Field(gt=0)
     is_final_sale: bool
     is_gift: bool
     purchased_variant: Variant
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.delivery_date < self.order_date:
+            raise ValueError("delivery_date cannot be before order_date")
+        return self
 
 
 # Customer claims: information supplied by the customer (untrusted, unverified).
@@ -56,9 +62,19 @@ class EngineRequest(StrictInput):
     exchange_request: ExchangeRequest | None = None
     request_date: date
 
+    # A request made before delivery is invalid input, not a policy decision:
+    # it means something upstream called the engine when it shouldn't have.
+    # So, it gets rejected here so the engine
+    @model_validator(mode="after")
+    def validate_request_date(self):
+        if self.request_date < self.order_fact.delivery_date:
+            raise ValueError("request_date cannot be before order_fact.delivery_date")
+        return self
+
 
 # Rule Hit: a rule evaluated while making this decision.
 class RuleHit(BaseModel):
+    model_config = ConfigDict(frozen=True)
     rule_id: str
     section: str | None = None  # policy section, e.g. "S4"; None for contradiction rulings
     result: Literal["pass", "fail", "info"]
@@ -69,13 +85,14 @@ class RuleHit(BaseModel):
 
 # Deterministic engine output.
 # Built only by internal engine code;
-# frozen keeps decision from being changed after it's made.
+# frozen keeps decision from being changed after it's made. frozen is shallow,
+# so policy_rules is a tuple of frozen RuleHits to make the whole decision immutable.
 
 AllowedActions = Literal["refund", "store_credit", "exchange", "deny"]
 
 class PolicyDecision(BaseModel):
     model_config = ConfigDict(frozen=True)
-    policy_rules: list[RuleHit]  # Rules evaluated to make the decision
+    policy_rules: tuple[RuleHit, ...]  # Rules evaluated to make the decision
     deadline: date
     requires_human_review: bool
     action_to_take: AllowedActions
