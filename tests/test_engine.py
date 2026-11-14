@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from engine.config import load_policy
+from engine.config import WindowRule, load_policy
 from engine.engine import PolicyEngine, check_standard_window
 from engine.models import CustomerClaim, EngineRequest, OrderFact, Variant
 
@@ -76,7 +76,10 @@ def test_decision_records_policy_version(engine, config):
 
 def test_window_length_comes_from_config(config):
     """Change the window in config, not code: a 45-day window accepts day 45."""
-    longer = config.rules.standard_window.model_copy(update={"days": 45})
+    # model_validate, not model_copy(update=...): model_copy skips validation,
+    # so it would happily build a rule with days=-5.
+    rule = config.rules.standard_window
+    longer = WindowRule.model_validate({**rule.model_dump(), "days": 45})
     result = check_standard_window(longer, make_request(45))
 
     assert result.deadline == DELIVERED + timedelta(days=45)
