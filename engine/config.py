@@ -54,6 +54,17 @@ class HolidayRule(StandardRule):
             raise ValueError("order_start must be on or before order_end")
         return self
 
+    @model_validator(mode="after")
+    def check_deadline_exists_every_year(self) -> Self:
+        """The engine puts the deadline in the year after the order, which may not be a leap year.
+
+        Feb 29 would mean a different date in most years, so the business has to pick
+        Feb 28 or Mar 1 explicitly. (Feb 29 is fine for order_start/order_end.)
+        """
+        if self.deadline.as_tuple() == (2, 29):
+            raise ValueError("deadline can't be Feb 29: it doesn't exist every year; use Feb 28 or Mar 1")
+        return self
+
 class Rules(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     standard_window: WindowRule

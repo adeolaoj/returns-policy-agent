@@ -55,11 +55,11 @@ def test_load_real_config():
     assert config.rules.human_approval.threshold == Decimal("500.00")
 
 
-def test_feb_29_allowed(tmp_path: Path, real_data: dict):
-    """Feb 29 is a real day in leap years, so it must not be rejected."""
-    set_at(real_data, ("rules", "holiday_extension", "deadline"), {"month": 2, "day": 29})
+def test_feb_29_allowed_in_order_window(tmp_path: Path, real_data: dict):
+    """Feb 29 is a real day in leap years, so it's a valid order-window boundary."""
+    set_at(real_data, ("rules", "holiday_extension", "order_start"), {"month": 2, "day": 29})
     config = load_policy(write_data(tmp_path, real_data))
-    assert config.rules.holiday_extension.deadline.day == 29
+    assert config.rules.holiday_extension.order_start.day == 29
 
 
 # -- Invalid values: the real file with exactly one value broken.
@@ -94,6 +94,8 @@ INVALID_VALUES = [
      HOLIDAY + ("deadline",), "value_error"),
     ("apr 31", HOLIDAY + ("deadline",), {"month": 4, "day": 31},
      HOLIDAY + ("deadline",), "value_error"),
+    ("feb 29 deadline", HOLIDAY + ("deadline",), {"month": 2, "day": 29},
+     HOLIDAY, "value_error"),
     ("duplicate section", ("rules", "loyalty_window", "section"), "S1",
      ("rules",), "value_error"),
 ]
