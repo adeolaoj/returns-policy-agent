@@ -93,7 +93,9 @@ AllowedActions = Literal["refund", "store_credit", "exchange", "deny"]
 class PolicyDecision(BaseModel):
     model_config = ConfigDict(frozen=True)
     policy_rules: tuple[RuleHit, ...]  # Rules evaluated to make the decision
-    deadline: date
+    # Latest deadline among the windows that apply; None when no window applies
+    # (e.g. a final-sale item that isn't defective).
+    deadline: date | None
     requires_human_review: bool
     action_to_take: AllowedActions
     rules_version: str  # Version of the policy rules applied

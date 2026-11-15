@@ -36,6 +36,8 @@ explain everything at once.
 - **Conflict:** S4 says clearance items "cannot be returned or exchanged." S5 says defective
   items can be returned "even if it was marked final sale."
 - **Decision:** a defective item can be returned within 90 days even if it's final sale.
+  For a final-sale item, **only** the defective window (S5) counts: the standard, loyalty
+  and holiday windows still appear in the trace but aren't compared under C2.
 - **Why:** S5 is the more specific rule and names the exception explicitly. Selling a
   broken item and refusing to take it back is also the outcome a retailer least wants.
 

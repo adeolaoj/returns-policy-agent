@@ -4,8 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from engine.config import WindowRule, load_policy
-from engine.engine import PolicyEngine, check_holiday_extension, check_standard_window
+from engine.config import PolicyConfig, WindowRule, load_policy
+from engine.engine import (
+    DEFECT_CLAIMED,
+    PolicyEngine,
+    WindowResult,
+    check_holiday_extension,
+    check_standard_window,
+    check_window_gate,
+)
 from engine.models import CustomerClaim, EngineRequest, OrderFact, Variant
 
 REAL_CONFIG = Path(__file__).parent.parent / "policy" / "rules.yaml"
@@ -80,11 +87,13 @@ def hit_for(decision, rule_id: str):
     return hit
 
 
-# -- Trace shape: every window reports, then C2 decides
-def test_trace_lists_every_window_then_c2(engine):
+# -- Trace shape: gates in precedence order (final sale, condition, window)
+def test_trace_follows_precedence_order(engine):
     decision = engine.evaluate(make_request())
 
     assert [(h.rule_id, h.result) for h in decision.policy_rules] == [
+        ("final_sale", "pass"),
+        ("condition", "pass"),
         ("standard_window", "info"),
         ("loyalty_window", "info"),
         ("holiday_extension", "info"),
@@ -243,3 +252,136 @@ def test_window_length_comes_from_config(config):
     result = check_standard_window(longer, make_request(days_after_delivery=45))
 
     assert result.deadline == DELIVERED + timedelta(days=45)
+
+
+def results(decision) -> list[tuple[str, str]]:
+    """The trace as (rule_id, result) pairs."""
+    return [(h.rule_id, h.result) for h in decision.policy_rules]
+
+
+# -- S4 + C1: final sale blocks the return, unless the item is defective
+def test_final_sale_not_defective_denied(engine):
+    decision = engine.evaluate(make_request(is_final_sale=True))
+
+    assert decision.action_to_take == "deny"
+    assert decision.refund_amount is None
+    assert decision.deadline is None  # no window applies to a non-defective final-sale item
+    assert hit_for(decision, "final_sale").result == "fail"
+    assert "C1" not in [h.rule_id for h in decision.policy_rules]
+    # The window gate fails closed, but as "info": S4 already reports the real reason.
+    assert hit_for(decision, "C2").result == "info"
+    assert hit_for(decision, "C2").detail == (
+        "No return window applies: final-sale item, not reported defective."
+    )
+
+
+def test_final_sale_defective_refunded_via_c1(engine):
+    decision = engine.evaluate(make_request(is_final_sale=True, defective=True, days_after_delivery=90))
+
+    assert decision.action_to_take == "refund"
+    assert decision.deadline == DELIVERED + timedelta(days=90)
+    assert hit_for(decision, "final_sale").result == "info"
+    assert hit_for(decision, "C1").result == "pass"
+    assert "fail" not in [h.result for h in decision.policy_rules]  # approved: no "fail" anywhere
+
+
+def test_final_sale_defective_after_90_days_denied(engine):
+    decision = engine.evaluate(make_request(is_final_sale=True, defective=True, days_after_delivery=91))
+
+    assert decision.action_to_take == "deny"
+    assert hit_for(decision, "C1").result == "pass"
+    assert hit_for(decision, "C2").result == "fail"
+
+
+def test_final_sale_only_counts_defective_window(config):
+    """C1: with a 120-day loyalty window, a final-sale member still only gets the 90-day defective window.
+
+    Uses a changed config, since with the real numbers the defective window always wins anyway.
+    """
+    data = config.model_dump()
+    data["rules"]["loyalty_window"]["days"] = 120
+    engine = PolicyEngine(PolicyConfig.model_validate(data))
+
+    decision = engine.evaluate(
+        make_request(is_final_sale=True, defective=True, loyalty_since=MEMBER_SINCE, days_after_delivery=100)
+    )
+
+    assert decision.action_to_take == "deny"
+    assert decision.deadline == DELIVERED + timedelta(days=90)
+    assert hit_for(decision, "loyalty_window").detail.endswith("(120 days from delivery).")  # still reported
+    assert hit_for(decision, "C2").detail.startswith(
+        "Final-sale item: only defective_window counts (C1). Latest deadline"
+    )
+
+
+# -- S7 + C5: unused with tags or packaging, unless defective
+def test_used_item_denied(engine):
+    decision = engine.evaluate(make_request(unused_with_tags_or_packaging=False))
+
+    assert decision.action_to_take == "deny"
+    assert decision.deadline == DELIVERED + timedelta(days=30)  # the window wasn't the problem
+    assert hit_for(decision, "condition").result == "fail"
+    assert hit_for(decision, "C2").result == "pass"
+
+
+def test_used_defective_item_passes_condition(engine):
+    decision = engine.evaluate(make_request(unused_with_tags_or_packaging=False, defective=True))
+
+    assert decision.action_to_take == "refund"
+    assert hit_for(decision, "condition").result == "pass"
+    assert "S7's exception applies" in hit_for(decision, "condition").detail
+
+
+# -- Run every gate: all failures are reported at once, in precedence order
+def test_every_failing_gate_is_reported(engine):
+    """Used, final sale, and late: the customer hears about all of it in one answer."""
+    decision = engine.evaluate(
+        make_request(is_final_sale=True, unused_with_tags_or_packaging=False, days_after_delivery=45)
+    )
+
+    assert decision.action_to_take == "deny"
+    assert results(decision) == [
+        ("final_sale", "fail"),
+        ("condition", "fail"),
+        ("standard_window", "info"),
+        ("loyalty_window", "info"),
+        ("holiday_extension", "info"),
+        ("defective_window", "info"),
+        ("C2", "info"),
+    ]
+
+
+# -- Fail closed: no eligible window never means approval
+def test_window_gate_fails_closed_without_any_deadline():
+    """If a future bug left a normal item with no windows, the gate must deny, not approve."""
+    no_windows = tuple(
+        WindowResult(deadline=None, hits=(), rule_id=rule_id)
+        for rule_id in ("standard_window", "loyalty_window", "holiday_extension", "defective_window")
+    )
+    deadline, gate = check_window_gate(no_windows, make_request())
+
+    assert deadline is None
+    assert gate.passed is False
+    assert gate.hits[0].detail == "No return window applies: no window granted a deadline."
+
+
+# -- Audit: the defect phrase appears exactly where the unverified claim changed the outcome
+def flagged(decision) -> list[str]:
+    return [h.rule_id for h in decision.policy_rules if DEFECT_CLAIMED in h.detail]
+
+
+@pytest.mark.parametrize(
+    "overrides, expected",
+    [
+        ({}, []),
+        ({"defective": True}, ["defective_window"]),
+        ({"defective": True, "unused_with_tags_or_packaging": False}, ["condition", "defective_window"]),
+        (
+            {"defective": True, "unused_with_tags_or_packaging": False, "is_final_sale": True},
+            ["C1", "condition", "defective_window"],
+        ),
+    ],
+    ids=["no claim", "defective only", "defective and used", "defective, used, final sale"],
+)
+def test_defect_claim_is_flagged_where_it_matters(engine, overrides, expected):
+    assert flagged(engine.evaluate(make_request(**overrides))) == expected
