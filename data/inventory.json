@@ -1,0 +1,59 @@
+[
+  {
+    "product_id": "P-SHIRT-LINEN",
+    "name": "Linen button-up shirt",
+    "variants": [
+      {"size": "S", "color": "white", "quantity": 0},
+      {"size": "M", "color": "white", "quantity": 4},
+      {"size": "L", "color": "white", "quantity": 6},
+      {"size": "M", "color": "blue", "quantity": 2}
+    ]
+  },
+  {
+    "product_id": "P-BOOTS-CHELSEA",
+    "name": "Chelsea boots",
+    "variants": [
+      {"size": "8", "color": "brown", "quantity": 3},
+      {"size": "9", "color": "brown", "quantity": 2}
+    ]
+  },
+  {
+    "product_id": "P-SCARF-STRIPED",
+    "name": "Striped wool scarf",
+    "variants": [
+      {"size": null, "color": "red", "quantity": 5},
+      {"size": null, "color": "navy", "quantity": 0}
+    ]
+  },
+  {
+    "product_id": "P-COAT-WOOL",
+    "name": "Wool overcoat",
+    "variants": [
+      {"size": "M", "color": "charcoal", "quantity": 3},
+      {"size": "L", "color": "charcoal", "quantity": 1}
+    ]
+  },
+  {
+    "product_id": "P-JACKET-LEATHER",
+    "name": "Leather jacket",
+    "variants": [
+      {"size": "M", "color": "black", "quantity": 2},
+      {"size": "L", "color": "black", "quantity": 1}
+    ]
+  },
+  {
+    "product_id": "P-SWEATER-MERINO",
+    "name": "Merino crewneck sweater",
+    "variants": [
+      {"size": "S", "color": "green", "quantity": 3},
+      {"size": "M", "color": "green", "quantity": 0}
+    ]
+  },
+  {
+    "product_id": "P-LAMP-CERAMIC",
+    "name": "Ceramic table lamp",
+    "variants": [
+      {"size": null, "color": null, "quantity": 7}
+    ]
+  }
+]

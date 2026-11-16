@@ -1,0 +1,20 @@
+[
+  {
+    "id": "CUST-001",
+    "name": "Maya Okafor",
+    "email": "maya.okafor@example.com",
+    "loyalty_since": "2024-06-01"
+  },
+  {
+    "id": "CUST-002",
+    "name": "Jordan Reyes",
+    "email": "jordan.reyes@example.com",
+    "loyalty_since": null
+  },
+  {
+    "id": "CUST-003",
+    "name": "Sam Lindqvist",
+    "email": "sam.lindqvist@example.com",
+    "loyalty_since": null
+  }
+]

@@ -1,0 +1,136 @@
+[
+  {
+    "id": "FG-1001",
+    "customer_id": "CUST-002",
+    "ordered_at": "2026-03-02",
+    "delivered_at": "2026-03-05",
+    "is_gift": false,
+    "shipping_cost": "8.00",
+    "items": [
+      {"line_id": "1", "product_id": "P-SHIRT-LINEN", "name": "Linen button-up shirt",
+       "size": "M", "color": "white", "price_paid": "68.00", "is_final_sale": false}
+    ]
+  },
+  {
+    "id": "FG-1002",
+    "customer_id": "CUST-002",
+    "ordered_at": "2026-01-20",
+    "delivered_at": "2026-01-24",
+    "is_gift": false,
+    "shipping_cost": "8.00",
+    "items": [
+      {"line_id": "1", "product_id": "P-BOOTS-CHELSEA", "name": "Chelsea boots",
+       "size": "9", "color": "brown", "price_paid": "150.00", "is_final_sale": false}
+    ]
+  },
+  {
+    "id": "FG-1003",
+    "customer_id": "CUST-001",
+    "ordered_at": "2026-01-20",
+    "delivered_at": "2026-01-24",
+    "is_gift": false,
+    "shipping_cost": "8.00",
+    "items": [
+      {"line_id": "1", "product_id": "P-BOOTS-CHELSEA", "name": "Chelsea boots",
+       "size": "8", "color": "brown", "price_paid": "150.00", "is_final_sale": false}
+    ]
+  },
+  {
+    "id": "FG-1004",
+    "customer_id": "CUST-002",
+    "ordered_at": "2026-03-01",
+    "delivered_at": "2026-03-04",
+    "is_gift": false,
+    "shipping_cost": "12.00",
+    "items": [
+      {"line_id": "1", "product_id": "P-SCARF-STRIPED", "name": "Striped wool scarf",
+       "size": null, "color": "red", "price_paid": "24.00", "is_final_sale": true},
+      {"line_id": "2", "product_id": "P-COAT-WOOL", "name": "Wool overcoat",
+       "size": "M", "color": "charcoal", "price_paid": "180.00", "is_final_sale": false}
+    ]
+  },
+  {
+    "id": "FG-1005",
+    "customer_id": "CUST-001",
+    "ordered_at": "2026-03-03",
+    "delivered_at": "2026-03-06",
+    "is_gift": false,
+    "shipping_cost": "0.00",
+    "items": [
+      {"line_id": "1", "product_id": "P-JACKET-LEATHER", "name": "Leather jacket",
+       "size": "M", "color": "black", "price_paid": "640.00", "is_final_sale": false}
+    ]
+  },
+  {
+    "id": "FG-1006",
+    "customer_id": "CUST-003",
+    "ordered_at": "2026-03-05",
+    "delivered_at": "2026-03-09",
+    "is_gift": true,
+    "shipping_cost": "8.00",
+    "items": [
+      {"line_id": "1", "product_id": "P-SWEATER-MERINO", "name": "Merino crewneck sweater",
+       "size": "S", "color": "green", "price_paid": "92.00", "is_final_sale": false}
+    ]
+  },
+  {
+    "id": "FG-1007",
+    "customer_id": "CUST-003",
+    "ordered_at": "2026-03-06",
+    "delivered_at": "2026-03-10",
+    "is_gift": false,
+    "shipping_cost": "15.00",
+    "items": [
+      {"line_id": "1", "product_id": "P-LAMP-CERAMIC", "name": "Ceramic table lamp",
+       "size": null, "color": null, "price_paid": "120.00", "is_final_sale": false}
+    ]
+  },
+  {
+    "id": "FG-1008",
+    "customer_id": "CUST-002",
+    "ordered_at": "2026-02-26",
+    "delivered_at": "2026-03-02",
+    "is_gift": false,
+    "shipping_cost": "8.00",
+    "items": [
+      {"line_id": "1", "product_id": "P-TOTE-CANVAS", "name": "Canvas tote bag",
+       "size": null, "color": "olive", "price_paid": "45.00", "is_final_sale": false}
+    ]
+  },
+  {
+    "id": "FG-1009",
+    "customer_id": "CUST-002",
+    "ordered_at": "2026-03-13",
+    "delivered_at": null,
+    "is_gift": false,
+    "shipping_cost": "8.00",
+    "items": [
+      {"line_id": "1", "product_id": "P-SHIRT-LINEN", "name": "Linen button-up shirt",
+       "size": "M", "color": "blue", "price_paid": "68.00", "is_final_sale": false}
+    ]
+  },
+  {
+    "id": "FG-1010",
+    "customer_id": "CUST-999",
+    "ordered_at": "2026-03-01",
+    "delivered_at": "2026-03-04",
+    "is_gift": false,
+    "shipping_cost": "8.00",
+    "items": [
+      {"line_id": "1", "product_id": "P-COAT-WOOL", "name": "Wool overcoat",
+       "size": "L", "color": "charcoal", "price_paid": "180.00", "is_final_sale": false}
+    ]
+  },
+  {
+    "id": "FG-1011",
+    "customer_id": "CUST-003",
+    "ordered_at": "2026-03-08",
+    "delivered_at": "2026-03-05",
+    "is_gift": false,
+    "shipping_cost": "8.00",
+    "items": [
+      {"line_id": "1", "product_id": "P-BOOTS-CHELSEA", "name": "Chelsea boots",
+       "size": "9", "color": "brown", "price_paid": "150.00", "is_final_sale": false}
+    ]
+  }
+]
