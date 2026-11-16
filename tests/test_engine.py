@@ -3,6 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from engine.config import PolicyConfig, WindowRule, load_policy
 from engine.engine import (
@@ -13,7 +14,7 @@ from engine.engine import (
     check_standard_window,
     check_window_gate,
 )
-from engine.models import CustomerClaim, EngineRequest, ExchangeRequest, OrderFact, Variant
+from engine.models import CustomerClaim, EngineRequest, ExchangeRequest, OrderFact, PolicyDecision, Variant
 
 REAL_CONFIG = Path(__file__).parent.parent / "policy" / "rules.yaml"
 
@@ -99,6 +100,8 @@ def test_trace_follows_precedence_order(engine):
         ("holiday_extension", "info"),
         ("defective_window", "info"),
         ("C2", "pass"),
+        ("refund_method", "info"),
+        ("human_approval", "info"),
     ]
 
 
@@ -417,7 +420,7 @@ def test_valid_exchange_approved(engine, size, color):
 
 def test_exchange_hits_come_after_the_return_gates(engine):
     decision = engine.evaluate(make_request(exchange_request=exchange_for(size="L")))
-    assert [h.rule_id for h in decision.policy_rules][-3:] == ["C2", "C8", "exchange"]
+    assert [h.rule_id for h in decision.policy_rules][-4:] == ["C2", "C8", "exchange", "C10"]
 
 
 def test_plain_return_has_no_exchange_hits(engine):
@@ -505,3 +508,95 @@ def test_defective_final_sale_exchange_allowed_via_c1(engine):
 
     assert decision.action_to_take == "exchange"
     assert hit_for(decision, "C1").result == "pass"
+
+
+# -- S6 + C6: refund method
+def test_non_gift_refunded_to_original_payment(engine):
+    decision = engine.evaluate(make_request())
+
+    assert decision.action_to_take == "refund"
+    assert decision.refund_amount == Decimal("40.00")
+    assert hit_for(decision, "refund_method").detail == "Refunded to the original payment method (S6)."
+
+
+def test_gift_gets_store_credit(engine):
+    decision = engine.evaluate(make_request(is_gift=True))
+
+    assert decision.action_to_take == "store_credit"
+    assert decision.refund_amount == Decimal("40.00")  # same value, different method
+
+
+def test_defective_gift_still_gets_store_credit(engine):
+    """C6: a defect doesn't change who paid. The defect phrase isn't added: the claim changed nothing here."""
+    decision = engine.evaluate(make_request(is_gift=True, defective=True))
+
+    assert decision.action_to_take == "store_credit"
+    method_hit = hit_for(decision, "refund_method")
+    assert "(C6)" in method_hit.detail
+    assert DEFECT_CLAIMED not in method_hit.detail
+
+
+# -- S8 + C7: approval for payouts strictly over $500.00, store credit included
+@pytest.mark.parametrize("is_gift", [False, True], ids=["refund", "store credit"])
+@pytest.mark.parametrize(
+    "price, needs_review",
+    [(Decimal("500.00"), False), (Decimal("500.01"), True)],
+    ids=["$500.00", "$500.01"],
+)
+def test_approval_threshold_boundary(engine, is_gift, price, needs_review):
+    decision = engine.evaluate(make_request(price_paid=price, is_gift=is_gift))
+
+    assert decision.action_to_take == ("store_credit" if is_gift else "refund")
+    assert decision.requires_human_review is needs_review
+
+
+def test_store_credit_review_cites_c7(engine):
+    decision = engine.evaluate(make_request(price_paid=Decimal("650.00"), is_gift=True))
+    assert hit_for(decision, "human_approval").detail == (
+        "Store credit of $650.00 is over the $500.00 threshold: needs human approval. "
+        "Store credit counts toward the threshold (C7)."
+    )
+
+
+def test_threshold_comes_from_config(config):
+    data = config.model_dump()
+    data["rules"]["human_approval"]["threshold"] = Decimal("100.00")
+    engine = PolicyEngine(PolicyConfig.model_validate(data))
+
+    assert engine.evaluate(make_request(price_paid=Decimal("150.00"))).requires_human_review is True
+
+
+# -- C10: exchanges never need approval
+def test_expensive_exchange_needs_no_approval(engine):
+    decision = engine.evaluate(make_request(price_paid=Decimal("600.00"), exchange_request=exchange_for(size="L")))
+
+    assert decision.action_to_take == "exchange"
+    assert decision.requires_human_review is False
+    assert hit_for(decision, "C10").result == "info"
+    rule_ids = [h.rule_id for h in decision.policy_rules]
+    assert "refund_method" not in rule_ids  # no payout, so no payout method
+    assert "human_approval" not in rule_ids
+
+
+# -- Denied requests describe no payout
+def test_denied_request_has_no_payout_hits(engine):
+    decision = engine.evaluate(make_request(price_paid=Decimal("900.00"), is_gift=True, days_after_delivery=31))
+
+    assert decision.action_to_take == "deny"
+    assert decision.requires_human_review is False
+    rule_ids = [h.rule_id for h in decision.policy_rules]
+    assert not {"refund_method", "human_approval", "C10"} & set(rule_ids)
+
+
+@pytest.mark.parametrize("action", ["deny", "exchange"])
+def test_review_flag_only_allowed_on_payouts(action):
+    """PolicyDecision rejects a review flag on a decision that pays nothing out."""
+    with pytest.raises(ValidationError, match="requires_human_review can't be set"):
+        PolicyDecision(
+            policy_rules=(),
+            deadline=None,
+            requires_human_review=True,
+            action_to_take=action,
+            rules_version="1.0.0",
+            refund_amount=None,
+        )

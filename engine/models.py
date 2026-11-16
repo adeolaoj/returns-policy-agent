@@ -100,3 +100,11 @@ class PolicyDecision(BaseModel):
     action_to_take: AllowedActions
     rules_version: str  # Version of the policy rules applied
     refund_amount: Decimal | None
+
+    # Review means "a person signs off before this money goes out", so it only makes sense
+    # for a payout. Raising here turns an engine bug into an error instead of a bad review task.
+    @model_validator(mode="after")
+    def validate_review_only_for_payouts(self):
+        if self.requires_human_review and self.action_to_take not in ("refund", "store_credit"):
+            raise ValueError(f"requires_human_review can't be set for action {self.action_to_take!r}")
+        return self

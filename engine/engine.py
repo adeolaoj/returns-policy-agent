@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Literal
 
-from engine.config import HolidayRule, MonthDay, PolicyConfig, StandardRule, WindowRule
+from decimal import Decimal
+
+from engine.config import HolidayRule, MonthDay, PolicyConfig, StandardRule, ThresholdRule, WindowRule
 from engine.models import EngineRequest, PolicyDecision, RuleHit, Variant
 
 # Every hit whose outcome depends on the customer's (unverified) defect claim includes this
@@ -29,6 +31,25 @@ class GateResult:
     """
     passed: bool
     hits: tuple[RuleHit, ...]
+
+@dataclass(frozen=True)
+class MethodResult:
+    """What the refund-method check returns: how an approved refund is paid, plus its trace entries."""
+    method: Literal["refund", "store_credit"]
+    hits: tuple[RuleHit, ...]
+
+
+@dataclass(frozen=True)
+class ApprovalResult:
+    """What the approval check returns: whether a person must sign off, plus its trace entries."""
+    requires_review: bool
+    hits: tuple[RuleHit, ...]
+
+
+def format_money(amount: Decimal) -> str:
+    """Readable amount for trace details, e.g. '$1,250.00'."""
+    return f"${amount:,.2f}"
+
 
 def format_date(d: date) -> str:
     """Readable date for trace details, e.g. 'Apr 4, 2026'."""
@@ -259,6 +280,66 @@ def check_exchange(rule: StandardRule, request: EngineRequest) -> GateResult:
     return GateResult(passed=True, hits=(c8, hit))
 
 
+# Outcome checks. These run only after every gate has passed: they can't block a request,
+# only decide how it's paid and whether a person signs off. Their hits are always "info".
+
+def check_refund_method(rule: StandardRule, request: EngineRequest) -> MethodResult:
+    """S6 + C6: gift purchases get store credit (even when defective); everything else goes
+    back to the original payment method."""
+    order = request.order_fact
+
+    if not order.is_gift:
+        method = "refund"
+        detail = "Refunded to the original payment method (S6)."
+    else:
+        method = "store_credit"
+        detail = "Gift purchase: refunded as store credit (S6)."
+        if request.customer_claim.defective:
+            # No DEFECT_CLAIMED phrase: the claim doesn't change the outcome here, that's C6's point.
+            detail += " A defect doesn't change who paid, so this applies to defective gifts too (C6)."
+
+    hit = RuleHit(rule_id="refund_method", section=rule.section, result="info", detail=detail)
+    return MethodResult(method=method, hits=(hit,))
+
+
+def check_approval(
+    rule: ThresholdRule, action: Literal["refund", "store_credit", "exchange"], amount: Decimal | None
+) -> ApprovalResult:
+    """S8 + C7 + C10: payouts strictly over the threshold need a person to approve them,
+    store credit included. Exchanges never do, since nothing is paid out.
+
+    C10 is checked on the action itself, not on the amount, so it doesn't rely on what
+    refund_amount happens to hold for an exchange.
+    """
+    if action == "exchange":
+        hit = RuleHit(
+            rule_id="C10", section=None, result="info",
+            detail="Exchange: no money is paid out, so no approval is needed (C10).",
+        )
+        return ApprovalResult(requires_review=False, hits=(hit,))
+
+    assert amount is not None  # every refund or store credit has an amount (C12)
+    label = "Store credit" if action == "store_credit" else "Refund"
+    counts = " Store credit counts toward the threshold (C7)." if action == "store_credit" else ""
+
+    # Decimal on both sides, so cents compare exactly. "Over" means strictly greater (C7).
+    if amount > rule.threshold:
+        needs_review = True
+        detail = (
+            f"{label} of {format_money(amount)} is over the {format_money(rule.threshold)} "
+            f"threshold: needs human approval.{counts}"
+        )
+    else:
+        needs_review = False
+        detail = (
+            f"{label} of {format_money(amount)} is not over the {format_money(rule.threshold)} "
+            f"threshold: no approval needed.{counts}"
+        )
+
+    hit = RuleHit(rule_id="human_approval", section=rule.section, result="info", detail=detail)
+    return ApprovalResult(requires_review=needs_review, hits=(hit,))
+
+
 class PolicyEngine:
     """Applies a loaded policy config to return requests."""
 
@@ -289,17 +370,28 @@ class PolicyEngine:
 
         # The customer chose return or exchange; the engine only checks that choice and never
         # switches it. A denied exchange's trace still shows whether a return would pass.
+        # Refund method and approval only run once the request is approved: on a denial they'd
+        # describe a payout that isn't happening.
         if not approved:
-            action, refund_amount = "deny", None
+            action, refund_amount, requires_review = "deny", None, False
         elif request.exchange_request is not None:
             action, refund_amount = "exchange", None  # no money is paid out
+            approval = check_approval(rules.human_approval, action, refund_amount)
+            requires_review = approval.requires_review
+            trace += approval.hits
         else:
-            action, refund_amount = "refund", request.order_fact.price_paid  # C12
+            # Precedence: refund method (step 3), then approval (step 4). Approval doesn't depend
+            # on the method (C7), but the trace reads naturally: what is paid, then who signs off.
+            method = check_refund_method(rules.refund_method, request)
+            action, refund_amount = method.method, request.order_fact.price_paid  # C12
+            approval = check_approval(rules.human_approval, action, refund_amount)
+            requires_review = approval.requires_review
+            trace += method.hits + approval.hits
 
         return PolicyDecision(
             policy_rules=trace,
             deadline=deadline,
-            requires_human_review=False,
+            requires_human_review=requires_review,
             action_to_take=action,
             rules_version=self.config.policy_version,
             refund_amount=refund_amount,
