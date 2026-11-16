@@ -5,8 +5,11 @@ description = "A customer-service agent for a fictional retailer that handles re
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi>=0.163.1",
+    "httpx>=0.28.1",
     "pydantic>=2.14.2",
     "pyyaml>=6.0.3",
+    "uvicorn>=0.54.0",
 ]
 
 [dependency-groups]
