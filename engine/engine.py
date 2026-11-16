@@ -143,6 +143,11 @@ def check_defective_window(rule: WindowRule, request: EngineRequest) -> WindowRe
 # Gate checks. Each gate owns its verdict (GateResult.passed); its hits only explain it.
 # A passing gate has exactly one "pass" hit; a failing gate has one "fail" hit per
 # independent problem. Any other hits are "info".
+# Every rule reports, even when it doesn't apply ("Doesn't apply: ..." as an "info" hit),
+# so the trace always says why a rule had no effect. The UI can collapse info hits.
+# One deliberate exception: the outcome checks (refund method, approval) don't run on a
+# denied request. They describe a payout, and a denial has none, so there's no rule that
+# was evaluated and had no effect, only a payout that isn't happening.
 
 def check_final_sale(rule: StandardRule, request: EngineRequest) -> GateResult:
     """S4: final-sale items can't be returned, unless they're defective (C1)."""
@@ -193,6 +198,9 @@ def check_window_gate(windows: tuple[WindowResult, ...], request: EngineRequest)
     the gate result.
     """
     final_sale = request.order_fact.is_final_sale
+    # With v1 values this filter never changes an outcome: delivery is on or after Nov 15, so
+    # delivery + 90 days is always later than Jan 31 and than 60 days. It guards against config
+    # changes, e.g. a 120-day loyalty window (see test_final_sale_only_counts_defective_window).
     eligible = [
         w for w in windows
         if w.deadline is not None and (not final_sale or w.rule_id == "defective_window")
@@ -233,8 +241,8 @@ def format_variant(v: Variant) -> str:
 def check_exchange(rule: StandardRule, request: EngineRequest) -> GateResult:
     """S9 + C9: an exchange must be the same product, change size and/or color, and be in stock.
 
-    Plain returns (no exchange_request) pass with no hits: exchange rules can't block a return,
-    and nobody returning an item wonders about them, so they'd only clutter the trace.
+    Plain returns (no exchange_request) pass with a single "Doesn't apply" info hit:
+    exchange rules can't block a return, but like every rule they still report.
 
     Variants are compared exactly as given. The engine assumes the requested variant is a real
     catalog variant with values normalized upstream (see contradictions.md, Assumptions), and it
@@ -242,7 +250,11 @@ def check_exchange(rule: StandardRule, request: EngineRequest) -> GateResult:
     """
     exchange = request.exchange_request
     if exchange is None:
-        return GateResult(passed=True, hits=())
+        hit = RuleHit(
+            rule_id="exchange", section=rule.section, result="info",
+            detail="Doesn't apply: this is a return, not an exchange.",
+        )
+        return GateResult(passed=True, hits=(hit,))
 
     purchased = request.order_fact.purchased_variant
     wanted = exchange.requested_variant
@@ -282,6 +294,7 @@ def check_exchange(rule: StandardRule, request: EngineRequest) -> GateResult:
 
 # Outcome checks. These run only after every gate has passed: they can't block a request,
 # only decide how it's paid and whether a person signs off. Their hits are always "info".
+# Skipping them on a denial is the one exception to "every rule reports" (see the gate checks).
 
 def check_refund_method(rule: StandardRule, request: EngineRequest) -> MethodResult:
     """S6 + C6: gift purchases get store credit (even when defective); everything else goes
@@ -318,7 +331,9 @@ def check_approval(
         )
         return ApprovalResult(requires_review=False, hits=(hit,))
 
-    assert amount is not None  # every refund or store credit has an amount (C12)
+    # A real check, not an assert: asserts are stripped when Python runs with -O.
+    if amount is None:
+        raise ValueError(f"{action} requires an amount (C12)")
     label = "Store credit" if action == "store_credit" else "Refund"
     counts = " Store credit counts toward the threshold (C7)." if action == "store_credit" else ""
 

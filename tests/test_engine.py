@@ -10,6 +10,7 @@ from engine.engine import (
     DEFECT_CLAIMED,
     PolicyEngine,
     WindowResult,
+    check_approval,
     check_holiday_extension,
     check_standard_window,
     check_window_gate,
@@ -100,6 +101,7 @@ def test_trace_follows_precedence_order(engine):
         ("holiday_extension", "info"),
         ("defective_window", "info"),
         ("C2", "pass"),
+        ("exchange", "info"),
         ("refund_method", "info"),
         ("human_approval", "info"),
     ]
@@ -351,6 +353,7 @@ def test_every_failing_gate_is_reported(engine):
         ("holiday_extension", "info"),
         ("defective_window", "info"),
         ("C2", "info"),
+        ("exchange", "info"),
     ]
 
 
@@ -423,8 +426,11 @@ def test_exchange_hits_come_after_the_return_gates(engine):
     assert [h.rule_id for h in decision.policy_rules][-4:] == ["C2", "C8", "exchange", "C10"]
 
 
-def test_plain_return_has_no_exchange_hits(engine):
-    assert exchange_hits(engine.evaluate(make_request())) == []
+def test_plain_return_reports_exchange_does_not_apply(engine):
+    decision = engine.evaluate(make_request())
+
+    assert exchange_hits(decision) == [("exchange", "info")]  # no C8: that's only for exchanges
+    assert hit_for(decision, "exchange").detail == "Doesn't apply: this is a return, not an exchange."
 
 
 def test_identical_variant_is_not_an_exchange(engine):
@@ -600,3 +606,9 @@ def test_review_flag_only_allowed_on_payouts(action):
             rules_version="1.0.0",
             refund_amount=None,
         )
+
+
+def test_payout_without_amount_raises(config):
+    """A real check, not an assert, so it still runs under python -O."""
+    with pytest.raises(ValueError, match="requires an amount"):
+        check_approval(config.rules.human_approval, "refund", None)
