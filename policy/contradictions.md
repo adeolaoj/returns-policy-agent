@@ -130,5 +130,11 @@ explain everything at once.
   scope here, but the trace always shows when C1 was used, so these cases are easy to audit.
 - **One item per request.** A customer could split a $900 refund into two $450 requests
   to avoid S8. An order-level running total would close that gap, but it's out of scope for v1.
+- **Exchange variants are trusted as given.** The engine compares the requested variant to the
+  purchased one exactly (`"m"` and `"M"` differ). It assumes the requested variant is a real
+  catalog variant with normalized values, and it reads stock from the inventory system's
+  answer. Checking that is the job of whatever builds the exchange request.
+- **The engine never switches the customer's choice.** A denied exchange stays a denial, even
+  when a return would pass. The trace shows that, so the reply can offer a return instead.
 - **The engine never reads the clock.** The request date is passed in. This keeps every
   decision reproducible and testable.

@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from typing import Literal
 
 from engine.config import HolidayRule, MonthDay, PolicyConfig, StandardRule, WindowRule
-from engine.models import EngineRequest, PolicyDecision, RuleHit
+from engine.models import EngineRequest, PolicyDecision, RuleHit, Variant
 
 # Every hit whose outcome depends on the customer's (unverified) defect claim includes this
 # exact phrase, so an auditor can find those decisions with one search.
@@ -120,7 +120,8 @@ def check_defective_window(rule: WindowRule, request: EngineRequest) -> WindowRe
 
 
 # Gate checks. Each gate owns its verdict (GateResult.passed); its hits only explain it.
-# Within a gate, exactly one hit carries the pass/fail, and any others are "info".
+# A passing gate has exactly one "pass" hit; a failing gate has one "fail" hit per
+# independent problem. Any other hits are "info".
 
 def check_final_sale(rule: StandardRule, request: EngineRequest) -> GateResult:
     """S4: final-sale items can't be returned, unless they're defective (C1)."""
@@ -201,6 +202,63 @@ def check_window_gate(windows: tuple[WindowResult, ...], request: EngineRequest)
     return latest, GateResult(passed=passed, hits=(hit,))
 
 
+def format_variant(v: Variant) -> str:
+    """Readable variant for trace details, e.g. 'size M, color blue' or 'no size, color oak'."""
+    size = f"size {v.size}" if v.size is not None else "no size"
+    color = f"color {v.color}" if v.color is not None else "no color"
+    return f"{size}, {color}"
+
+
+def check_exchange(rule: StandardRule, request: EngineRequest) -> GateResult:
+    """S9 + C9: an exchange must be the same product, change size and/or color, and be in stock.
+
+    Plain returns (no exchange_request) pass with no hits: exchange rules can't block a return,
+    and nobody returning an item wonders about them, so they'd only clutter the trace.
+
+    Variants are compared exactly as given. The engine assumes the requested variant is a real
+    catalog variant with values normalized upstream (see contradictions.md, Assumptions), and it
+    reads stock from the inventory system's answer rather than looking anything up itself.
+    """
+    exchange = request.exchange_request
+    if exchange is None:
+        return GateResult(passed=True, hits=())
+
+    purchased = request.order_fact.purchased_variant
+    wanted = exchange.requested_variant
+
+    # C8: the final-sale, condition and window gates above already apply to this exchange.
+    c8 = RuleHit(
+        rule_id="C8", section=None, result="info",
+        detail="Exchange: the same final-sale, condition and window rules as a return apply.",
+    )
+
+    failures = []
+    if wanted.product_id != purchased.product_id:
+        # Size/color aren't compared across different products: that comparison means nothing.
+        failures.append(f"Requested product {wanted.product_id}, not the purchased product {purchased.product_id} (C9).")
+    elif (wanted.size, wanted.color) == (purchased.size, purchased.color):
+        failures.append(
+            f"Requested the same variant as purchased ({format_variant(purchased)}); "
+            "an exchange must change the size, the color, or both (C9)."
+        )
+    # Stock is independent of the product check, so it's always reported.
+    if not exchange.requested_in_stock:
+        failures.append(f"Requested variant ({format_variant(wanted)}) is out of stock.")
+
+    if failures:
+        hits = tuple(
+            RuleHit(rule_id="exchange", section=rule.section, result="fail", detail=d) for d in failures
+        )
+        return GateResult(passed=False, hits=(c8,) + hits)
+
+    detail = (
+        f"Same product {wanted.product_id}, from {format_variant(purchased)} "
+        f"to {format_variant(wanted)}, in stock (C9)."
+    )
+    hit = RuleHit(rule_id="exchange", section=rule.section, result="pass", detail=detail)
+    return GateResult(passed=True, hits=(c8, hit))
+
+
 class PolicyEngine:
     """Applies a loaded policy config to return requests."""
 
@@ -219,19 +277,30 @@ class PolicyEngine:
         deadline, window_gate = check_window_gate(windows, request)
 
         # Every gate runs, every time, in the precedence order from contradictions.md:
-        # final sale, then condition, then window. The trace follows the same order.
+        # final sale, condition, window, then exchange rules. The trace follows the same order.
         final_sale_gate = check_final_sale(rules.final_sale, request)
         condition_gate = check_condition(rules.condition, request)
         window_hits = tuple(hit for w in windows for hit in w.hits)
+        exchange_gate = check_exchange(rules.exchange, request)
 
-        trace = final_sale_gate.hits + condition_gate.hits + window_hits + window_gate.hits
-        approved = final_sale_gate.passed and condition_gate.passed and window_gate.passed
+        gates = (final_sale_gate, condition_gate, window_gate, exchange_gate)
+        trace = final_sale_gate.hits + condition_gate.hits + window_hits + window_gate.hits + exchange_gate.hits
+        approved = all(g.passed for g in gates)
+
+        # The customer chose return or exchange; the engine only checks that choice and never
+        # switches it. A denied exchange's trace still shows whether a return would pass.
+        if not approved:
+            action, refund_amount = "deny", None
+        elif request.exchange_request is not None:
+            action, refund_amount = "exchange", None  # no money is paid out
+        else:
+            action, refund_amount = "refund", request.order_fact.price_paid  # C12
 
         return PolicyDecision(
             policy_rules=trace,
             deadline=deadline,
             requires_human_review=False,
-            action_to_take="refund" if approved else "deny",
+            action_to_take=action,
             rules_version=self.config.policy_version,
-            refund_amount=request.order_fact.price_paid if approved else None,  # C12
+            refund_amount=refund_amount,
         )

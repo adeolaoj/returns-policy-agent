@@ -13,7 +13,7 @@ from engine.engine import (
     check_standard_window,
     check_window_gate,
 )
-from engine.models import CustomerClaim, EngineRequest, OrderFact, Variant
+from engine.models import CustomerClaim, EngineRequest, ExchangeRequest, OrderFact, Variant
 
 REAL_CONFIG = Path(__file__).parent.parent / "policy" / "rules.yaml"
 
@@ -385,3 +385,123 @@ def flagged(decision) -> list[str]:
 )
 def test_defect_claim_is_flagged_where_it_matters(engine, overrides, expected):
     assert flagged(engine.evaluate(make_request(**overrides))) == expected
+
+
+# -- S9 + C8 + C9: exchanges
+# The baseline purchase is product P100, size M, color blue.
+def exchange_for(
+    product_id: str = "P100", size: str | None = "M", color: str | None = "blue", in_stock: bool = True
+) -> ExchangeRequest:
+    return ExchangeRequest(
+        requested_variant=Variant(product_id=product_id, size=size, color=color),
+        requested_in_stock=in_stock,
+    )
+
+
+def exchange_hits(decision) -> list[tuple[str, str]]:
+    return [(h.rule_id, h.result) for h in decision.policy_rules if h.rule_id in ("C8", "exchange")]
+
+
+@pytest.mark.parametrize(
+    "size, color",
+    [("L", "blue"), ("M", "green"), ("L", "green")],
+    ids=["size changes", "color changes", "both change"],
+)
+def test_valid_exchange_approved(engine, size, color):
+    decision = engine.evaluate(make_request(exchange_request=exchange_for(size=size, color=color)))
+
+    assert decision.action_to_take == "exchange"
+    assert decision.refund_amount is None  # no money is paid out
+    assert exchange_hits(decision) == [("C8", "info"), ("exchange", "pass")]
+
+
+def test_exchange_hits_come_after_the_return_gates(engine):
+    decision = engine.evaluate(make_request(exchange_request=exchange_for(size="L")))
+    assert [h.rule_id for h in decision.policy_rules][-3:] == ["C2", "C8", "exchange"]
+
+
+def test_plain_return_has_no_exchange_hits(engine):
+    assert exchange_hits(engine.evaluate(make_request())) == []
+
+
+def test_identical_variant_is_not_an_exchange(engine):
+    decision = engine.evaluate(make_request(exchange_request=exchange_for()))
+
+    assert decision.action_to_take == "deny"
+    assert exchange_hits(decision) == [("C8", "info"), ("exchange", "fail")]
+    assert "must change the size, the color, or both" in hit_for(decision, "exchange").detail
+
+
+def test_out_of_stock_denied_but_return_would_pass(engine):
+    """The engine doesn't switch to a refund; the trace shows a return would be approved."""
+    decision = engine.evaluate(make_request(exchange_request=exchange_for(size="L", in_stock=False)))
+
+    assert decision.action_to_take == "deny"
+    assert hit_for(decision, "exchange").detail == "Requested variant (size L, color blue) is out of stock."
+    return_gates = [h.result for h in decision.policy_rules if h.rule_id in ("final_sale", "condition", "C2")]
+    assert return_gates == ["pass", "pass", "pass"]
+
+
+def test_defective_identical_swap_denied(engine):
+    """C9: a broken item can't be swapped for an identical one; the customer can return it instead."""
+    decision = engine.evaluate(make_request(defective=True, exchange_request=exchange_for()))
+
+    assert decision.action_to_take == "deny"
+    assert hit_for(decision, "exchange").result == "fail"
+    assert hit_for(decision, "C2").result == "pass"
+
+
+def test_different_product_reports_product_and_stock_only(engine):
+    """Size/color aren't compared across products; stock is independent, so it's still reported."""
+    decision = engine.evaluate(
+        make_request(exchange_request=exchange_for(product_id="P200", in_stock=False))
+    )
+
+    details = [h.detail for h in decision.policy_rules if h.rule_id == "exchange"]
+    assert details == [
+        "Requested product P200, not the purchased product P100 (C9).",
+        "Requested variant (size M, color blue) is out of stock.",
+    ]
+
+
+def test_variants_without_size_compare_as_equal(engine):
+    """Home goods: purchased and requested both have no size, so only the color has to change."""
+    purchased = Variant(product_id="P300", size=None, color="oak")
+
+    changed = make_request(purchased_variant=purchased, exchange_request=exchange_for("P300", None, "walnut"))
+    same = make_request(purchased_variant=purchased, exchange_request=exchange_for("P300", None, "oak"))
+
+    assert engine.evaluate(changed).action_to_take == "exchange"
+    assert engine.evaluate(same).action_to_take == "deny"
+
+
+def test_variants_compared_exactly(engine):
+    """'m' vs 'M' counts as different: normalizing values is upstream's job, not the engine's."""
+    decision = engine.evaluate(make_request(exchange_request=exchange_for(size="m")))
+    assert decision.action_to_take == "exchange"
+
+
+# -- C8: exchanges pass the same gates as returns
+def test_exchange_of_final_sale_item_denied(engine):
+    decision = engine.evaluate(make_request(is_final_sale=True, exchange_request=exchange_for(size="L")))
+
+    assert decision.action_to_take == "deny"
+    assert hit_for(decision, "final_sale").result == "fail"
+    assert hit_for(decision, "exchange").result == "pass"  # the exchange itself was fine
+
+
+def test_late_exchange_denied(engine):
+    decision = engine.evaluate(make_request(days_after_delivery=31, exchange_request=exchange_for(size="L")))
+
+    assert decision.action_to_take == "deny"
+    assert hit_for(decision, "C2").result == "fail"
+
+
+def test_defective_final_sale_exchange_allowed_via_c1(engine):
+    """C8: C1 applies to exchanges too."""
+    decision = engine.evaluate(
+        make_request(is_final_sale=True, defective=True, exchange_request=exchange_for(size="L"))
+    )
+
+    assert decision.action_to_take == "exchange"
+    assert hit_for(decision, "C1").result == "pass"
