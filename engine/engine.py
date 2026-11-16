@@ -141,7 +141,7 @@ def check_final_sale(rule: StandardRule, request: EngineRequest) -> GateResult:
     s4 = RuleHit(rule_id="final_sale", section=rule.section, result="info", detail="Final-sale item.")
     c1 = RuleHit(
         rule_id="C1", section=None, result="pass",
-        detail=f"Item reported defective {DEFECT_CLAIMED}, so final sale doesn't block the return.",
+        detail=f"Item reported defective {DEFECT_CLAIMED}, so final sale doesn't block request.",
     )
     return GateResult(passed=True, hits=(s4, c1))
 
