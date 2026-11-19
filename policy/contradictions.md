@@ -136,5 +136,9 @@ explain everything at once.
   answer. Checking that is the job of whatever builds the exchange request.
 - **The engine never switches the customer's choice.** A denied exchange stays a denial, even
   when a return would pass. The trace shows that, so the reply can offer a return instead.
+- **The mock backend trusts the approval flag.** A refund request says whether it needs
+  approval (S8), and the API records it as pending or issued accordingly. The $500 threshold
+  lives only in `rules.yaml`, so it can't drift between two copies. A real payment backend
+  would also enforce its own payout limit, so a buggy caller couldn't skip approval.
 - **The engine never reads the clock.** The request date is passed in. This keeps every
   decision reproducible and testable.

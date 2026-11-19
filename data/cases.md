@@ -26,7 +26,7 @@ so one order can serve several scenarios.
 | 8 | FG-1004 | Line 1, final-sale scarf | Unused, wants a refund | Deny (S4 final sale). |
 | 9 | FG-1004 | Line 1, final-sale scarf | It's defective | Refund $24.00 (C1). Trace flags the defect as unverified. |
 | 10 | FG-1004 | Line 2, coat | Unused, wants a refund | Refund $180.00, from the right line item. |
-| 11 | FG-1005 | Jacket, $640 | Unused, wants a refund | Refund needs human approval (S8). Escalation with `reason="approval_required"`. Reply says it's pending. |
+| 11 | FG-1005 | Jacket, $640 | Unused, wants a refund | Refund needs human approval (S8). Two writes: a refund with `status="pending_approval"`, then an escalation with `reason="approval_required"` pointing to it. Reply says it's pending. |
 | 12 | FG-1005 | M/black → L/black has 1 in stock | Exchange for a large | Exchange, no approval needed (C10). |
 | 13 | FG-1006 | Gift order, sweater $92 | Unused, wants a refund | Store credit $92.00 (S6). |
 | 14 | FG-1007 | Lamp, no size or color | Wants to swap for another lamp | Deny (nothing to change, C9). Reply offers a return. |
